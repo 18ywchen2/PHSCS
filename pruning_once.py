@@ -76,44 +76,6 @@ def Taylor_pruning_structured(model, prun_ratio, num_heads, keep_heads, taylor_p
         attn_scores.append(score_attn)
 
     with torch.no_grad():
-        # # Factorizing Embedding Matrix
-        # if emb_hidden_dim != -1:
-        #     if hasattr(model.embeddings, 'word_embeddings'):
-        #         print('Factorizing embedding matrix...')
-        #
-        #         emb = model.embeddings.word_embeddings.weight.data
-        #         u, s, v = torch.svd(emb)
-        #         s = torch.eye(emb.shape[1], device='cuda') * s
-        #         temp = torch.matmul(u[:, :emb_hidden_dim], s[:emb_hidden_dim, :emb_hidden_dim])
-        #         new_word_emb1 = temp
-        #
-        #         # 更新模型的嵌入层权重
-        #         model.embeddings.word_embeddings1 = torch.nn.Embedding(config.vocab_size, emb_hidden_dim, padding_idx=1)
-        #         model.embeddings.word_embeddings1.weight.data = new_word_emb1.clone()
-        #         model.embeddings.word_embeddings2 = torch.nn.Linear(emb_hidden_dim, config.hidden_size, bias=False)
-        #         model.embeddings.word_embeddings2.weight.data = v[:emb_hidden_dim].t().clone()
-        #
-        #         # 释放原始词嵌入的内存
-        #         del model.embeddings.word_embeddings
-        #
-        #         # emb = model.embeddings.word_embeddings.weight.data.numpy()
-        #         # u, s, v = np.linalg.svd(emb)
-        #         # s = np.eye(emb.shape[1]) * s
-        #         # temp = np.dot(u[:, :emb_hidden_dim], s[:emb_hidden_dim, :emb_hidden_dim])
-        #         # new_word_emb1 = torch.from_numpy(temp)
-        #         # new_word_emb2 = torch.from_numpy(v[:emb_hidden_dim])
-        #         # model.embeddings.word_embeddings1 = torch.nn.Embedding(config.vocab_size, emb_hidden_dim,
-        #         #                                                             padding_idx=0)
-        #         # model.embeddings.word_embeddings1.weight.data = new_word_emb1.clone()
-        #         # model.embeddings.word_embeddings2 = torch.nn.Linear(emb_hidden_dim, config.hidden_size, bias=False)
-        #         # model.embeddings.word_embeddings2.weight.data = new_word_emb2.t().clone()
-        #         # del model.embeddings.word_embeddings
-        #     else:
-        #         model.embeddings.word_embeddings1.weight.data = model.embeddings.word_embeddings1.weight.data[
-        #                                                              :, :emb_hidden_dim]
-        #         model.embeddings.word_embeddings2.weight.data = model.embeddings.word_embeddings2.weight.data[
-        #                                                              :, :emb_hidden_dim]
-
         layer_id = 0
         for name, module in model.named_modules():
 
@@ -133,24 +95,6 @@ def Taylor_pruning_structured(model, prun_ratio, num_heads, keep_heads, taylor_p
                     weight_chunks = torch.split(module.weight.data, int(attn_size), dim=1)
                     module.weight.data = torch.cat([weight_chunks[i] for i in indices], dim=1)
 
-            # # Pruning FFN
-            # if (name in intermedia_modules) and (not prun_ratio == 1):
-            #     score_inter = intermedia_scores[layer_id]
-            #     expand_score = score_inter.expand(config.hidden_size, score_inter.size(0))
-            #     if name in prune_out:
-            #         unstructured_pruning(module, 'bias', 1 - prun_ratio, score_inter)
-            #         unstructured_pruning(module, 'weight', 1 - prun_ratio, expand_score.t())
-            #         prune.remove(module, 'bias')
-            #         prune.remove(module, 'weight')
-            #         module.bias.data = module.bias.data.masked_select(module.bias.data != 0)
-            #         module.weight.data = module.weight.data.masked_select(module.weight.data != 0).view(-1,
-            #                                                                                             config.hidden_size)
-            #     elif name in prune_in:
-            #         unstructured_pruning(module, 'weight', 1 - prun_ratio, expand_score)
-            #         prune.remove(module, 'weight')
-            #         module.weight.data = module.weight.data.masked_select(module.weight.data != 0).view(
-            #             config.hidden_size, -1)
-            #         layer_id += 1
     return model
 
 
@@ -178,10 +122,10 @@ def pruning(keep_heads):
 
     print('Loading BERT...')
 
-    config = config_class.from_pretrained("pretrain/h" + str(args.keep_heads + 1) + "_l12_f3072_e768")
+    config = config_class.from_pretrained("pretrain-solidity/h" + str(args.keep_heads + 1) + "_l12_f3072_e768")
     config.position_embedding_type = "absolute"
-    tokenizer = tokenizer_class.from_pretrained("pretrain/h" + str(args.keep_heads + 1) + "_l12_f3072_e768")
-    model = model_class.from_pretrained("pretrain/h" + str(args.keep_heads + 1) + "_l12_f3072_e768", config=config)
+    tokenizer = tokenizer_class.from_pretrained("pretrain-solidity/h" + str(args.keep_heads + 1) + "_l12_f3072_e768")
+    model = model_class.from_pretrained("pretrain-solidity/h" + str(args.keep_heads + 1) + "_l12_f3072_e768", config=config)
     if os.path.exists("pretrain/tencoder_" + str(args.keep_heads + 1) + "_10000.bin"):
         model.load_state_dict(torch.load("pretrain/tencoder_" + str(args.keep_heads + 1) + "_10000.bin"), strict=False)
     else:
@@ -232,10 +176,5 @@ def pruning(keep_heads):
     # print(model.state_dict().keys())
 
 
-def _mp_fn(index):
-    # For xla_spawn (TPUs)
-    main()
 
 
-if __name__ == "__main__":
-    pruning(11)

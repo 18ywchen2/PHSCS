@@ -1,30 +1,19 @@
 from __future__ import absolute_import, division, print_function
-import csv
 import argparse
-import glob
 import logging
 import os
 import pickle
 import random
-import re
-import shutil
-import json
 import numpy as np
 import torch
-import torch.nn as nn
-import pandas as pd
 from torch.utils.data import DataLoader, Dataset, SequentialSampler, RandomSampler, TensorDataset
-from torch.utils.data.distributed import DistributedSampler
-# from prefetch_generator import BackgroundGenerator
 from transformers import (WEIGHTS_NAME, AdamW, get_linear_schedule_with_warmup,
                           RobertaConfig, RobertaModel, RobertaTokenizer, BertModel)
 from model_pretrain import Model
 from tqdm import tqdm, trange
 from itertools import cycle
-import multiprocessing
-from imblearn.over_sampling import RandomOverSampler
 from transformers.data.data_collator import DataCollatorForLanguageModeling
-from parser.DFG import DFG_python, DFG_java, DFG_ruby, DFG_go, DFG_php, DFG_javascript
+from parser.DFG import DFG
 
 from parser.utils import (remove_comments_and_docstrings,
                           tree_to_token_index,
@@ -32,21 +21,16 @@ from parser.utils import (remove_comments_and_docstrings,
                           tree_to_variable_index)
 from tree_sitter import Language, Parser
 from pruning_once import pruning
-from preproccessing import pre_proccessing, pretrain_proccessing, pretrain_proccessing_DApp
+from preproccessing import pretrain_proccessing, pretrain_proccessing_DApp
 logger = logging.getLogger(__name__)
 MODEL_CLASSES = {'roberta': (RobertaConfig, RobertaModel, RobertaTokenizer)}
 
 dfg_function = {
-    # 'python':DFG_python,
-    'java': DFG_java,
-    # 'ruby':DFG_ruby,
-    # 'go':DFG_go,
-    # 'php':DFG_php,
-    # 'javascript':DFG_javascript
+    'solidity': DFG,
 }
 
 parsers = {}
-parsers['java'] = Parser()
+parsers['solidity'] = Parser()
 for lang in dfg_function:
     LANGUAGE = Language('parser/my-languages.so', lang)
     parser = Parser()
@@ -113,15 +97,15 @@ def read_examples():
     examples = []
     idx = 0
 
-    codes = pretrain_proccessing_DApp('../SmartContracts/DAppSCAN-main/DAppSCAN-source')
+    codes = pretrain_proccessing_DApp('Dataset/DAppSCAN-main/DAppSCAN-source')
     for code in codes:
         examples.append(Example(idx=idx, source=code))
         idx += 1
-    codes = pretrain_proccessing("../SmartContracts/contract_dataset_ethereum")
+    codes = pretrain_proccessing("Dataset/contract_dataset_ethereum")
     for code in codes:
         examples.append(Example(idx=idx, source=code))
         idx += 1
-    codes = pretrain_proccessing("../SmartContracts/contract_dataset_github")
+    codes = pretrain_proccessing("Dataset/contract_dataset_github")
     for code in codes:
         examples.append(Example(idx=idx, source=code))
         idx += 1
@@ -139,7 +123,7 @@ class InputFeatures(object):
 
 
 def convert_examples_to_features(examples, tokenizer, stage=None):
-    max_source_length = 256
+    max_source_length = 512
     features = []
     parser = parsers['java']
     for example_index, example in tqdm(enumerate(examples), total=len(examples)):
@@ -243,7 +227,7 @@ def main(head, train_dataloader, code_to_code):
     parser.add_argument("--load_model_path", default=None, type=str,
                         help="Path to trained model: Should contain the .bin files")
     ## Other parameters
-    parser.add_argument("--train_filename", default="dataset/train/java_train.jsonl", type=str,
+    parser.add_argument("--train_filename", default=None, type=str,
                         help="The train filename. Should contain the .jsonl files for this task.")
     parser.add_argument("--dev_filename", default=None, type=str,
                         help="The dev filename. Should contain the .jsonl files for this task.")
@@ -253,7 +237,7 @@ def main(head, train_dataloader, code_to_code):
                         help="Pretrained config name or path if not the same as model_name")
     parser.add_argument("--tokenizer_name", default="codebert-base", type=str,
                         help="Pretrained tokenizer name or path if not the same as model_name")
-    parser.add_argument("--max_source_length", default=256, type=int,
+    parser.add_argument("--max_source_length", default=None, type=int,
                         help="The maximum total source sequence length after tokenization. Sequences longer "
                              "than this will be truncated, sequences shorter will be padded.")
     parser.add_argument("--do_train", default=True, action='store_true',
@@ -268,31 +252,21 @@ def main(head, train_dataloader, code_to_code):
                         help="Avoid using CUDA when available")
     parser.add_argument("--n_gpu", default=1, action='store_true',
                         help="Avoid using CUDA when available")
-    parser.add_argument("--train_batch_size", default=32, type=int,
+    parser.add_argument("--train_batch_size", default=None, type=int,
                         help="Batch size per GPU/CPU for training.")
-    parser.add_argument("--eval_batch_size", default=8, type=int,
+    parser.add_argument("--eval_batch_size", default=None, type=int,
                         help="Batch size per GPU/CPU for evaluation.")
     parser.add_argument('--gradient_accumulation_steps', type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
-    parser.add_argument("--learning_rate", default=2e-5, type=float,
+    parser.add_argument("--learning_rate", default=None, type=float,
                         help="The initial learning rate for Adam.")
-    parser.add_argument("--beam_size", default=10, type=int,
-                        help="beam size for beam search")
-    parser.add_argument("--weight_decay", default=0.01, type=float,
+    parser.add_argument("--weight_decay", default=None, type=float,
                         help="Weight deay if we apply some.")
-    parser.add_argument("--adam_epsilon", default=1e-8, type=float,
+    parser.add_argument("--adam_epsilon", default=None, type=float,
                         help="Epsilon for Adam optimizer.")
-    parser.add_argument("--max_grad_norm", default=1.0, type=float,
-                        help="Max gradient norm.")
-    parser.add_argument("--num_train_epochs", default=3.0, type=float,
-                        help="Total number of training epochs to perform.")
-    parser.add_argument("--max_steps", default=-1, type=int,
-                        help="If > 0: set total number of training steps to perform. Override num_train_epochs.")
-    parser.add_argument("--eval_steps", default=-1, type=int,
+    parser.add_argument("--train_steps", default=None, type=int,
                         help="")
-    parser.add_argument("--train_steps", default=25000, type=int,
-                        help="")
-    parser.add_argument("--warmup_steps", default=10000, type=int,
+    parser.add_argument("--warmup_steps", default=None, type=int,
                         help="Linear warmup over warmup_steps.")
     parser.add_argument("--local_rank", type=int, default=-1,
                         help="For distributed training: local_rank")
@@ -327,22 +301,6 @@ def main(head, train_dataloader, code_to_code):
             model = Model(model, config)
             args.train_steps = 50000
             args.warmup_steps = 20000
-            state_dict = torch.load("pretrain/tmodel_" + str(12) + "_150000.bin")
-            mlm_weights = {
-                '0.weight': state_dict['MLM.0.weight'],
-                '2.weight': state_dict['MLM.2.weight'],
-                '2.bias': state_dict['MLM.2.bias'],
-                '3.weight': state_dict['MLM.3.weight']
-            }
-            df1_weights = {
-                'weight': state_dict['df1.weight'],
-            }
-            df2_weights = {
-                'weight': state_dict['df2.weight'],
-            }
-            model.MLM.load_state_dict(mlm_weights)
-            model.df1.load_state_dict(df1_weights)
-            model.df2.load_state_dict(df2_weights)
         else:
             from transformer.modeling_roberta import RobertaModel
             args.train_steps = 10000
@@ -479,5 +437,5 @@ if __name__ == "__main__":
     train_dataloader = DataLoader(loaded_dataset, shuffle=True,
                                   batch_size=32,
                                   num_workers=2, drop_last=True, pin_memory=True)
-    for i in reversed(range(1)):
-        main(-1, train_dataloader, code_to_code)
+    for i in reversed(range(12)):
+        main(i, train_dataloader, code_to_code)
