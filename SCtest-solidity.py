@@ -77,12 +77,6 @@ class Example(object):
 def read_examples(args=None):
     examples = []
 
-    # codes, Labels = pre_proccessing('../SmartContracts/DAppSCAN-main/DAppSCAN-source')
-    # for code, label in zip(codes.values(), Labels):
-    #     examples.append(Example(label=label, source=code))
-    if args.SWCsType in ["timestamp", "reentrancy", "integeroverflow", "delegatecall"]:
-        codes, Labels = dataset_Peng_Qian('../SmartContracts/dataset_preprocessing_for_vulnerabilities',
-                                          SWCsType=args.SWCsType)
     if args.SWCsType in ["TP", "BN", "DE", "EF", "UC", "RE", "OF", "SE"]:
         codes, Labels = dataset_Peng_Qian_2('../SmartContracts/Dataset',
                                           SWCsType=args.SWCsType)
@@ -249,8 +243,6 @@ def main(trainname, testname, head, SWCType):
                         help=["timestamp", "reentrancy", "integeroverflow", "delegatecall"])
     # print arguments
     args = parser.parse_args()
-    if args.SWCsType in ["timestamp", "reentrancy", "integeroverflow", "delegatecall"]:
-        args.num_train_epochs = 50
     if args.SWCsType in ["TP", "BN", "DE", "EF", "UC", "RE", "OF", "SE"]:
         args.num_train_epochs = 50
     logger.info(args)
@@ -283,11 +275,7 @@ def main(trainname, testname, head, SWCType):
             student.load_state_dict(torch.load("pretrain-solidity/h" + str(head) + "_l12_f3072_e768/tencoder_" + str(head) + "_10000" + ".bin"), strict=False)
     model = Model(student, config)
     model.to(device)
-    for param in model.encoder.embeddings.parameters():  # 冻结嵌入层参数
-        param.requires_grad = False
-    for i in range(12):
-        for param in model.encoder.encoder.layer[i].parameters():  # 冻结编码层参数
-            param.requires_grad = False
+
     data_examples = read_examples(args)
     data_features = convert_examples_to_features(data_examples, tokenizer, args)
     data_ids = torch.tensor([f.source_ids for f in data_features], dtype=torch.long)
@@ -448,16 +436,9 @@ def main(trainname, testname, head, SWCType):
 
 
 if __name__ == "__main__":
-    CPDP = [['forrest-0.8', ['forrest-0.8']]]
-    SWCsType = ["timestamp", "reentrancy", "integeroverflow", "delegatecall"]
-    SWCsType = ["RE", "OF", "SE"]
-    # SWCsType = ["timestamp", "reentrancy", "integeroverflow", "delegatecall", "TP", "BN", "DE", "EF", "UC", "RE", "OF", "SE"]
-    # SWCsType = ["BN", "EF", "UC", "SE"]
+    SWCsType = ["TP", "BN", "DE", "EF", "UC", "RE", "OF", "SE"]
     heads = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1]
-    heads = [-12]
-    # heads = [6, 5]
     for head in heads:
         for SWCType in SWCsType:
-            for projectname in (CPDP):
-                # main(trainname=projectname[0] + '', testname=projectname[1] + '_OverSample')
-                result = main(trainname=projectname[0] + '', testname=projectname[1][0], head=head, SWCType=SWCType)
+            main(trainname=projectname[0] + '', testname=projectname[1] + '_OverSample')
+            result = main(trainname=projectname[0] + '', testname=projectname[1][0], head=head, SWCType=SWCType)
